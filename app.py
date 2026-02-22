@@ -14,9 +14,17 @@ groq_api_key = os.getenv("GROQ_API_KEY")
 mongo_uri = os.getenv("MONGO_DB_URI")
 
 # MongoDB setup
-client = MongoClient(mongo_uri)
-db = client['chat']
-collection = db['users']
+try:
+    client = MongoClient(mongo_uri)
+    db = client['chat']
+    collection = db['users']
+    # Test connection
+    client.server_info()
+except Exception as e:
+    print(f"MongoDB Connection Error: {e}")
+    client = None
+    db = None
+    collection = None
 
 # FastAPI setup
 app = FastAPI()
@@ -45,6 +53,8 @@ chain = prompt | llm
 
 # Retrieve chat history
 def get_chat_history(user_id):
+    if collection is None:
+        return []
     chats = collection.find({"user_id": user_id}).sort("timestamp", 1)
     history = []
     for chat in chats:
@@ -56,7 +66,7 @@ def format_history(history):
 
 @app.get("/")
 def home():
-    return {"message": "Welcome to the Groq LLaMA‑2 Chat API!"}
+    return {"message": "Welcome to the Groq LLaMA Chat API!"}
 
 @app.post("/chat")
 def chat(request: ChatRequest):
@@ -72,17 +82,18 @@ def chat(request: ChatRequest):
     response = chain.invoke({"question": full_question})
 
     # Save user and assistant messages
-    collection.insert_one({
-        "user_id": request.user_id,
-        "role": "user",
-        "message": request.question,
-        "timestamp": datetime.utcnow()
-    })
-    collection.insert_one({
-        "user_id": request.user_id,
-        "role": "assistant",
-        "message": response.content,
-        "timestamp": datetime.utcnow()
-    })
+    if collection is not None:
+        collection.insert_one({
+            "user_id": request.user_id,
+            "role": "user",
+            "message": request.question,
+            "timestamp": datetime.utcnow()
+        })
+        collection.insert_one({
+            "user_id": request.user_id,
+            "role": "assistant",
+            "message": response.content,
+            "timestamp": datetime.utcnow()
+        })
 
     return {"response": response.content}
